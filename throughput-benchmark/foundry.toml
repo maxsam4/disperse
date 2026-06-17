@@ -1,0 +1,16 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc = "0.8.28"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 1_000_000
+via_ir = true
+
+# A separate profile that mirrors how Polygon prices gas today. The numbers we
+# report are EVM-equivalent, so the default profile is sufficient; this exists
+# purely as documentation of the assumed environment.
+[profile.polygon]
+evm_version = "cancun"

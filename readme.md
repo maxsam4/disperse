@@ -7,6 +7,7 @@ _verb_ distribute erc-20 tokens to many addresses in just two transactions
 - [wagmi-disperse](wagmi-disperse): 2025 rewrite that's currently deployed to https://disperse.app
 - [riot-disperse](riot-disperse): original 2018 version preserved for historical purposes and referencing
 - [brownie-disperse](brownie-disperse): 2018 contract and test scripts
+- [throughput-benchmark](throughput-benchmark): Foundry benchmarks for max POL & USDC transfers per 160M-gas Polygon block
 - [disperse.pdf](docs/disperse.pdf): 2018 paper and research
 
 ## interface
