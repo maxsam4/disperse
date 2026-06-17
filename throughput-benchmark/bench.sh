@@ -26,9 +26,12 @@ forge test --match-contract NativeThroughput -vv
 echo ">> running USDC (ERC-20) throughput benchmark..."
 forge test --match-contract 'UsdcThroughput' -vv
 
-if [ -n "${POLYGON_RPC_URL:-}" ]; then
-  echo ">> running real-USDC Polygon fork benchmark..."
+# Real USDC on a Polygon fork. Defaults to dRPC's public endpoint; override with
+# POLYGON_RPC_URL, or set RUN_FORK=0 to skip (the fork run takes ~1-2 minutes).
+if [ "${RUN_FORK:-1}" = "1" ]; then
+  export POLYGON_RPC_URL="${POLYGON_RPC_URL:-https://polygon.drpc.org}"
+  echo ">> running real-USDC Polygon fork benchmark via ${POLYGON_RPC_URL}..."
   forge test --match-contract UsdcForkThroughput -vv
 else
-  echo ">> (set POLYGON_RPC_URL to also benchmark the real USDC contract on a Polygon fork)"
+  echo ">> (RUN_FORK=0; skipping the real-USDC Polygon fork benchmark)"
 fi

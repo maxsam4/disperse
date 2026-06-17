@@ -41,10 +41,30 @@ contract NativeThroughput is BenchBase {
         used = g0 - gasleft();
     }
 
-    function _measureManyFresh(uint256 count, uint256 salt) internal returns (uint256 used) {
+    uint256 internal saltNonce;
+
+    function _measureManyFresh(uint256 count) internal returns (uint256 used) {
+        uint256 salt = ++saltNonce;
         address[] memory r = new address[](count);
         for (uint256 i; i < count; ++i) {
-            r[i] = address(uint160(uint256(keccak256(abi.encode(salt, i)))));
+            r[i] = address(uint160(uint256(keccak256(abi.encode("fresh", salt, i)))));
+        }
+        uint256 g0 = gasleft();
+        batch.disperseEtherEqual(r, VALUE);
+        used = g0 - gasleft();
+    }
+
+    /// @dev Distinct recipients that already exist on-chain (pre-funded, so the
+    ///      account is non-empty). Each is still cold-accessed once (2,600) but
+    ///      pays no 25,000 new-account charge — the realistic "pay existing
+    ///      holders" case.
+    function _measureManyPrefunded(uint256 count) internal returns (uint256 used) {
+        uint256 salt = ++saltNonce;
+        address[] memory r = new address[](count);
+        for (uint256 i; i < count; ++i) {
+            address a = address(uint160(uint256(keccak256(abi.encode("prefunded", salt, i)))));
+            r[i] = a;
+            vm.deal(a, 1 ether); // pre-existing balance => non-empty account
         }
         uint256 g0 = gasleft();
         batch.disperseEtherEqual(r, VALUE);
@@ -62,21 +82,19 @@ contract NativeThroughput is BenchBase {
         _record("0. naive EOA -> fresh empty account", INTRINSIC + 25_000);
         _record("1. naive EOA -> existing account", INTRINSIC);
 
-        // Rung 3: batched to distinct, warm, pre-funded recipients. We isolate
-        // the marginal by differencing two batch sizes of fresh accounts and
-        // then subtracting the 25k new-account premium that a pre-funded
-        // recipient would not pay. (Measuring 2N-N over fresh accounts gives the
-        // fresh-account marginal; pre-funded warm differs only by 25k.)
-        uint256 freshMarginal;
-        {
-            uint256 m1 = _measureManyFresh(N1, 1);
-            uint256 m2 = _measureManyFresh(N2, 2);
-            freshMarginal = (m2 - m1) / N1;
-        }
-        _record("2. batched -> many fresh empty accounts", freshMarginal);
-        // A pre-funded (non-empty) recipient skips CallNewAccountGas (25,000).
-        uint256 warmManyMarginal = freshMarginal > 25_000 ? freshMarginal - 25_000 : 0;
-        _record("3. batched -> many warm pre-funded accounts", warmManyMarginal);
+        // Rung 2: batched to distinct, fresh (empty) recipients — every transfer
+        // pays cold access (2,600) + new-account creation (25,000).
+        // gasleft() captures execution only; the array paths also pay calldata
+        // for one address word per recipient, charged before execution.
+        uint256 freshMarginal = (_measureManyFresh(N2) - _measureManyFresh(N1)) / N1;
+        _record("2. batched -> many fresh empty accounts", freshMarginal + _addressWordCalldata());
+
+        // Rung 3: batched to distinct recipients that ALREADY EXIST (pre-funded,
+        // non-empty). Cold access is still paid per recipient, but the 25,000
+        // new-account charge is gone. This is the realistic "pay existing
+        // holders" figure — measured, not extrapolated.
+        uint256 prefundedMarginal = (_measureManyPrefunded(N2) - _measureManyPrefunded(N1)) / N1;
+        _record("3. batched -> many distinct pre-existing accounts", prefundedMarginal + _addressWordCalldata());
 
         // Rung 4: the lab maximum. Same hot recipient, constant calldata.
         uint256 s1 = _measureSame(N1);
@@ -88,8 +106,9 @@ contract NativeThroughput is BenchBase {
         console2.log(">>> HEADLINE: max POL transfers in a 160M block = %s", maxPerBlock);
 
         // Sanity: each rung should beat the previous one.
-        assertLt(sameMarginal, warmManyMarginal, "same-recipient should beat distinct warm");
-        assertLt(warmManyMarginal, INTRINSIC, "batching should beat naive");
+        assertLt(sameMarginal, prefundedMarginal, "same-recipient should beat distinct pre-existing");
+        assertLt(prefundedMarginal, freshMarginal, "pre-existing should beat fresh accounts");
+        assertLt(prefundedMarginal, INTRINSIC, "batching should beat naive");
         // Floor check: a value transfer to an EOA cannot cost less than ~6,700
         // gas (9,000 CallValueTransferGas - 2,300 refunded stipend + warm CALL).
         assertGe(sameMarginal, 6_500, "cannot beat CallValueTransferGas floor");

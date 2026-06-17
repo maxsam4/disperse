@@ -18,19 +18,36 @@ Run `./bench.sh` to reproduce.
 |-------|----------|---------------:|---------------------------:|
 | POL   | naive EOA→fresh account (real-world airdrop floor) | 46,000 | 3,477 |
 | POL   | naive EOA→existing account | 21,000 | 7,618 |
-| POL   | batched → many fresh accounts | 34,807 | 4,596 |
-| POL   | batched → many warm pre-funded accounts | 9,807 | 16,312 |
+| POL   | batched → many fresh accounts | 35,077 | 4,560 |
+| POL   | batched → many **distinct pre-existing** accounts | 7,740 | 20,669 |
 | **POL** | **batched → single hot recipient (LAB MAX)** | **6,873** | **≈ 23,276** |
-| USDC  | batched → many fresh recipients (real airdrop) | 28,601 | 5,593 |
-| **USDC** | **batched → single hot recipient (LAB MAX)** | **3,885** | **≈ 41,178** |
+| USDC (mock) | batched → many fresh recipients (real airdrop) | 28,601 | 5,593 |
+| USDC (mock) | batched → many **distinct pre-existing** holders | 6,924 | 23,104 |
+| **USDC (mock)** | **batched → single hot recipient (LAB MAX)** | **3,885** | **≈ 41,178** |
 | ERC-20 | minimal token, single hot recipient (theoretical floor) | 3,333 | ≈ 47,998 |
 
+### Real USDC on a Polygon fork
+
+Validated against Circle's actual FiatToken bytecode at
+`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`, forked via dRPC
+(`POLYGON_RPC_URL=https://polygon.drpc.org`):
+
+| Asset | Strategy | Gas / transfer | **Transfers / 160M block** |
+|-------|----------|---------------:|---------------------------:|
+| **Real USDC** | batched → many **distinct pre-existing** holders | 6,759 | **≈ 23,669** |
+| **Real USDC** | batched → single hot recipient (LAB MAX) | 5,890 | **≈ 27,161** |
+
+Real USDC costs ~2,000 gas more per transfer than the minimal FiatToken mock:
+its transparent-proxy `delegatecall`, packed `balanceAndBlacklistStates`
+storage, and pause/blacklist SLOADs are all paid on every transfer.
+
 > Note the counter-intuitive result: under lab conditions a **USDC transfer is
-> cheaper than a POL transfer**. A native value send is bounded below by the
-> 9,000 gas `CallValueTransferGas` (≈6,700 net after the 2,300 stipend an EOA
-> refunds), whereas an ERC-20 transfer to a warm, already-dirtied balance slot
-> is just two 100-gas SSTOREs plus the `Transfer` event — no value-transfer
-> charge at all.
+> cheaper than a POL transfer** (mock USDC, at least). A native value send is
+> bounded below by the 9,000 gas `CallValueTransferGas` (≈6,700 net after the
+> 2,300 stipend an EOA refunds), whereas an ERC-20 transfer to a warm,
+> already-dirtied balance slot is just two 100-gas SSTOREs plus the `Transfer`
+> event — no value-transfer charge at all. Real USDC (~5,890) lands close to
+> native POL (~6,873) once its proxy/check overhead is included.
 
 ## Why these numbers — the optimization ladder
 
@@ -104,8 +121,8 @@ bench.sh                     runner
 # or directly
 forge test -vv
 
-# validate against the real USDC contract on Polygon
-POLYGON_RPC_URL=https://your-polygon-endpoint forge test --match-contract Fork -vv
+# validate against the real USDC contract on Polygon (dRPC public endpoint)
+POLYGON_RPC_URL=https://polygon.drpc.org forge test --match-contract Fork -vv
 ```
 
 Foundry is required (`curl -L https://foundry.paradigm.xyz | bash && foundryup`).

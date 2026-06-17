@@ -76,6 +76,23 @@ contract UsdcThroughput is BenchBase {
         used = g0 - gasleft();
     }
 
+    /// @dev Distinct recipients that ALREADY hold a USDC balance. Each transfer
+    ///      cold-accesses the recipient's balance slot (2,100) and does a
+    ///      nonzero->nonzero SSTORE (~2,900) instead of the ~20,000 zero->nonzero
+    ///      one — the realistic "top up existing holders" case.
+    function _manyPreexistingUsdc(uint256 count) internal returns (uint256 used) {
+        uint256 salt = ++saltNonce;
+        address[] memory r = new address[](count);
+        for (uint256 i; i < count; ++i) {
+            address a = address(uint160(uint256(keccak256(abi.encode("pe", salt, i)))));
+            r[i] = a;
+            usdc.mint(a, 1e6); // pre-existing nonzero balance
+        }
+        uint256 g0 = gasleft();
+        batch.disperseTokenEqual(IERC20(address(usdc)), r, 1);
+        used = g0 - gasleft();
+    }
+
     function _marginal(function(uint256) internal returns (uint256) f) internal returns (uint256) {
         uint256 m1 = f(N1);
         uint256 m2 = f(N2);
@@ -92,6 +109,11 @@ contract UsdcThroughput is BenchBase {
         uint256 usdcFreshMarginal = _marginal(_manyFreshUsdc);
         _record("USDC, batched -> many fresh recipients", usdcFreshMarginal + _addressWordCalldata());
 
+        // Distinct recipients that already hold a balance (top-up existing
+        // holders): nonzero->nonzero SSTORE instead of zero->nonzero.
+        uint256 usdcPreMarginal = _marginal(_manyPreexistingUsdc);
+        _record("USDC, batched -> many distinct pre-existing holders", usdcPreMarginal + _addressWordCalldata());
+
         // Same hot recipient, FiatToken-style token (warm + dirty slots).
         uint256 usdcSameMarginal = _marginal(_sameUsdc);
         uint256 usdcMax = _record("USDC, batched -> single hot recipient (MAX)", usdcSameMarginal);
@@ -106,7 +128,8 @@ contract UsdcThroughput is BenchBase {
 
         // Each optimization should help; USDC's extra checks make it pricier
         // than the minimal floor.
-        assertLt(usdcSameMarginal, usdcFreshMarginal, "hot recipient should beat fresh");
+        assertLt(usdcSameMarginal, usdcPreMarginal, "hot recipient should beat distinct pre-existing");
+        assertLt(usdcPreMarginal, usdcFreshMarginal, "pre-existing should beat fresh");
         assertGt(usdcSameMarginal, minSameMarginal, "USDC checks cost more than minimal");
     }
 }
